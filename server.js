@@ -92,14 +92,12 @@ app.post("/saveToken", (req, res) => {
   );
 });
 
-// Endpoint para leer datos de Notion y crear ramas en GitHub
 app.post("/notion-to-github", async (req, res) => {
   const { databaseId } = req.body;
   const token = req.headers.authorization.split(" ")[1];
   const decoded = jwt.verify(token, jwtSecret);
 
   try {
-    // Obtener tokens de la base de datos
     const [rows] = await db
       .promise()
       .query(
@@ -116,7 +114,7 @@ app.post("/notion-to-github", async (req, res) => {
 
     // Configurar clientes de Notion y GitHub con los tokens obtenidos
     const notion = new Client({ auth: notionToken });
-    const octokit = new Octokit({ auth: githubToken });
+    const octokit = new octokit({ auth: githubToken });
 
     // Consultar la base de datos de Notion
     const response = await notion.databases.query({ database_id: databaseId });
@@ -175,6 +173,68 @@ async function createPullRequest(taskName, octokit) {
 
   console.log(`Pull Request created: ${pullRequest.html_url}`);
 }
+
+app.get('/get-tokens', (req, res) => {
+  const token = req.headers.authorization.split(' ')[1];
+  const decoded = jwt.verify(token, jwtSecret);
+
+  db.query(
+      'SELECT notion_token, github_token FROM tokens WHERE user_id = ?',
+      [decoded.id],
+      (err, results) => {
+          if (err) {
+              return res.status(500).json({ error: err.message });
+          }
+          if (results.length === 0) {
+              return res.status(404).json({ tokens: null });
+          }
+          res.status(200).json({ tokens: results[0] });
+      }
+  );
+});
+
+app.get('/notion-boards', async (req, res) => {
+  const notionToken = req.headers.authorization.split(' ')[1];
+  const notion = new Client({ auth: notionToken });
+
+  try {
+      const response = await notion.search({
+          filter: {
+              property: 'object',
+              value: 'database',
+          },
+      });
+
+      const boards = response.results.map((board) => ({
+          id: board.id,
+          name: board.title[0]?.plain_text || 'Untitled',
+      }));
+
+      res.status(200).json({ boards });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/github-repos', async (req, res) => {
+  const githubToken = req.headers.authorization.split(' ')[1];
+  const octokit = new Octokit({ auth: githubToken });
+
+  try {
+      const response = await octokit.repos.listForAuthenticatedUser();
+      const repos = response.data.map((repo) => ({
+          id: repo.id,
+          name: repo.name,
+      }));
+
+      res.status(200).json({ repos });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+  }
+});
+
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
