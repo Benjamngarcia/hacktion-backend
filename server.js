@@ -37,7 +37,7 @@ app.post("/register", async (req, res) => {
   const hashedPassword = await bcrypt.hash(password, 8);
 
   db.query(
-    "INSERT INTO users (name, lastname, email, password) VALUES (?, ?, ?, ?)",
+    "INSERT INTO usuarios (nombre, apellido, correo, password) VALUES (?, ?, ?, ?)",
     [name, lastname, email, hashedPassword],
     (err, result) => {
       if (err) {
@@ -81,7 +81,7 @@ app.post("/saveToken", (req, res) => {
   const decoded = jwt.verify(token, jwtSecret);
 
   db.query(
-    "INSERT INTO tokens (user_id, notion_token, github_token) VALUES (?, ?, ?)",
+    "INSERT INTO tokens (id_usuario, notion_token, github_token) VALUES (?, ?, ?)",
     [decoded.id, notionToken, githubToken],
     (err, result) => {
       if (err) {
