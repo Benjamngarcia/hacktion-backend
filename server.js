@@ -5,11 +5,15 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const mysql = require("mysql2");
 const fs = require("fs");
+const cors = require('cors');
+
 
 const app = express();
 const port = 8080;
 
 app.use(bodyParser.json());
+
+app.use(cors({ origin: 'http://localhost:3000' }));
 
 const db = mysql.createConnection({
   host: process.env.DB_HOST,
@@ -52,7 +56,7 @@ app.post("/login", (req, res) => {
   const { email, password } = req.body;
 
   db.query(
-    "SELECT * FROM users WHERE email = ?",
+    "SELECT * FROM usuarios WHERE correo = ?",
     [email],
     async (err, results) => {
       if (err) {
@@ -219,7 +223,7 @@ app.get('/notion-boards', async (req, res) => {
 
 app.get('/github-repos', async (req, res) => {
   const githubToken = req.headers.authorization.split(' ')[1];
-  const octokit = new Octokit({ auth: githubToken });
+  const octokit = new octokit({ auth: githubToken });
 
   try {
       const response = await octokit.repos.listForAuthenticatedUser();
