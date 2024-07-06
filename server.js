@@ -18,8 +18,8 @@ const db = mysql.createConnection({
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
   ssl: {
-      ca: fs.readFileSync(process.env.DB_SSL_CA)
-  }
+    ca: fs.readFileSync(process.env.DB_SSL_CA),
+  },
 });
 
 db.connect((err) => {
@@ -91,6 +91,90 @@ app.post("/saveToken", (req, res) => {
     }
   );
 });
+
+// Endpoint para leer datos de Notion y crear ramas en GitHub
+app.post("/notion-to-github", async (req, res) => {
+  const { databaseId } = req.body;
+  const token = req.headers.authorization.split(" ")[1];
+  const decoded = jwt.verify(token, jwtSecret);
+
+  try {
+    // Obtener tokens de la base de datos
+    const [rows] = await db
+      .promise()
+      .query(
+        "SELECT notion_token, github_token FROM tokens WHERE user_id = ?",
+        [decoded.id]
+      );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Tokens not found" });
+    }
+
+    const notionToken = rows[0].notion_token;
+    const githubToken = rows[0].github_token;
+
+    // Configurar clientes de Notion y GitHub con los tokens obtenidos
+    const notion = new Client({ auth: notionToken });
+    const octokit = new Octokit({ auth: githubToken });
+
+    // Consultar la base de datos de Notion
+    const response = await notion.databases.query({ database_id: databaseId });
+
+    for (const page of response.results) {
+      const status = page.properties.Status.select.name;
+      const taskName = page.properties.Name.title[0].text.content;
+
+      if (status === "In Progress") {
+        await createBranch(taskName, octokit);
+      } else if (status === "Done") {
+        await createPullRequest(taskName, octokit);
+      }
+    }
+
+    res
+      .status(200)
+      .json({ message: "Branches and pull requests created successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+async function createBranch(taskName, octokit) {
+  const branchName = `feature/${taskName.replace(/\s+/g, "-").toLowerCase()}`;
+  const { data: baseBranchData } = await octokit.git.getRef({
+    owner: process.env.GITHUB_OWNER,
+    repo: process.env.GITHUB_REPO,
+    ref: `heads/${process.env.GITHUB_BASE_BRANCH}`,
+  });
+
+  const baseSha = baseBranchData.object.sha;
+
+  await octokit.git.createRef({
+    owner: process.env.GITHUB_OWNER,
+    repo: process.env.GITHUB_REPO,
+    ref: `refs/heads/${branchName}`,
+    sha: baseSha,
+  });
+
+  console.log(`Branch ${branchName} created successfully`);
+}
+
+async function createPullRequest(taskName, octokit) {
+  const branchName = `feature/${taskName.replace(/\s+/g, "-").toLowerCase()}`;
+
+  const { data: pullRequest } = await octokit.pulls.create({
+    owner: process.env.GITHUB_OWNER,
+    repo: process.env.GITHUB_REPO,
+    title: `PR: ${taskName}`,
+    head: branchName,
+    base: process.env.GITHUB_BASE_BRANCH,
+    body: `Pull request for task: ${taskName}`,
+  });
+
+  console.log(`Pull Request created: ${pullRequest.html_url}`);
+}
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
